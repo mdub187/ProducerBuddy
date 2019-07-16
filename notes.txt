@@ -1,0 +1,3 @@
+https://github.com/jaredks/rumps
+https://github.com/kivy/pyobjus
+https://www.python.org/download/mac/tcltk/

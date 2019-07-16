@@ -11,3 +11,8 @@ allow the user to organize samples into a folder hierarchy. Since organizing
 samples will require be able to preview samples, playback functionality will be
 implemented, including a pitch meter (aka a tuner), to help identify the key of
 samples and eventually BPM detection.
+
+Requirements so far:
+rumps
+pygame
+tkinter
