@@ -22,16 +22,25 @@ class ProducerBuddyGUI():
 
     def createwidgets(self):
         self.window = tk.Tk()
-        self.window.config()
+        self.window.config(padx=20,pady=20)
+        self.window.title("ProducerBuddy")
+        self.window.grid_columnconfigure(0,weight=1)
+        self.window.grid_rowconfigure(0,weight=2)
+        self.window.grid_columnconfigure(1,weight=0)
+        self.window.grid_columnconfigure(2,weight=1)
+        self.window.grid_rowconfigure(1,weight=0)
 
-        self.unsorted_controls = tk.Frame(self.window)
-        self.unsorted_controls.grid(column=0, row=0, ipadx=10, ipady=10)
+        self.unsorted_controls = tk.Frame(self.window, background="green")
+        self.unsorted_controls.grid(column=0, row=0, sticky="NW")
+
+
         self.unsorted_select_button = tk.Button(self.unsorted_controls, text=self.unsorted_path, command=self.selectunsortedpath)
         self.unsorted_select_button.grid(column=0,row=0)
 
 
-        self.target_controls = tk.Frame(self.window)
-        self.target_controls.grid(column=3, row=0, ipadx=10, ipady=10)
+        self.target_controls = tk.Frame(self.window, background="blue")
+        self.target_controls.grid(column=3, row=0, sticky="NE")
+
 
         self.unsorted_tree = self.createDirBrowser(self.unsorted_controls)
         self.target_tree = self.createDirBrowser(self.target_controls)
@@ -40,9 +49,9 @@ class ProducerBuddyGUI():
 
 
         button = tk.Button(self.window, text="Move", command=self.movebutton)
-        button.grid(column=2,row=0)
+        button.grid(column=1,row=0)
         self.transport_controls = tk.Frame(self.window)
-        self.transport_controls.grid(column=0, row=1)
+        self.transport_controls.grid(column=0, row=1, sticky="SW")
         button = tk.Button(self.transport_controls, text="Play", command=self.playButton)
         button.grid(column=0,row=1)
         button = tk.Button(self.transport_controls, text="Stop", command=self.stopButton)
@@ -70,6 +79,7 @@ class ProducerBuddyGUI():
 
             # Arrange the tree and its scrollbars in the toplevel
             tree.grid(column=0, row=1, sticky='e')
+
             vsb.grid(column=1, row=1, sticky='ns')
             hsb.grid(column=0, row=2, sticky='ew')
 
@@ -87,16 +97,20 @@ class ProducerBuddyGUI():
         mixer.music.play()
 
     def updateUnsorted(self):
-        ##Show the files, in the "unsorted", pane which can be
+        ##Show the unsorted sample files, in the "unsorted" treeview, which can be
         ##sorted to the target pane.
         unsorted_dir = os.listdir(self.unsorted_path)
         for file_name in unsorted_dir:
             file_type = None
             full_path = os.path.join(self.unsorted_path, file_name).replace('\\', '/')
-            if os.path.isdir(full_path): file_type = "directory"
-            elif os.path.isfile(full_path):
-                file_type = "file"
-                self.unsorted_tree.insert("", 'end', text=file_name, values=[full_path] )
+
+            ##We only want to add files (not dirs) in supported audio formats to the list:
+            if os.path.isfile(full_path):
+
+                file_base, file_ext = os.path.splitext(file_name)
+                for supported_ext in self.AUDIO_FORMATS:
+                    if supported_ext in file_ext:
+                        self.unsorted_tree.insert("", 'end', text=file_name, values=[full_path] )
 
     def updateDestination(self, path=None, parent = ''):
         ##Show the directories, in the "target", pane where the
@@ -144,7 +158,7 @@ class ProducerBuddyGUI():
 
     def selectunsortedpath(self, new_dir=None):
         if new_dir is None:
-            new_dir = filedialog.askdirectory()
+            new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir = self.unsorted_path)
         self.unsorted_path = os.path.realpath(new_dir)
         self.unsorted_select_button["text"] = self.unsorted_path
         self.unsorted_tree.delete(*self.unsorted_tree.get_children())
@@ -152,7 +166,7 @@ class ProducerBuddyGUI():
 
     def selecttargetpath(self, new_dir=None):
         if new_dir is None:
-            new_dir = filedialog.askdirectory()
+            new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir = self.target_path)
 
         self.target_path = os.path.realpath(new_dir)
         self.target_select_button["text"] = self.target_path
