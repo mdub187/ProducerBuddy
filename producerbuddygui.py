@@ -5,17 +5,44 @@ from pygame import mixer
 import shutil
 import os
 import yaml
+from producerbuddycontroller import ProducerBuddyController, writeconfigtoyaml, validateconfig, SUPPORTED_SETTING_KEYS
 
+#TODO: Move all non-GUI logic to producerbuddycontroller
 class ProducerBuddyGUI():
-    def __init__(self):
+    def __init__(self, pb_controller = None, config_file ='~/.producerbuddy.yml'):
+        ##TODO: Add runtime options to specify alt config file.
 
-        with open('./settings.yml', "r") as yaml_file:
-            self.yaml_settings = yaml.safe_load(yaml_file)
-
-        self.unsorted_path = os.path.expanduser(self.yaml_settings.get('unsorted_path'))
-        self.target_path = os.path.expanduser(self.yaml_settings.get('target_path'))
+        self.temp_settings = {}
 
         self.createwidgets()
+        self.pb_controller = None
+        self.config_file=os.path.expanduser('~/.producerbuddy.yml')
+
+        ##Keep trying to load a controller until we get a config that loads...
+        while self.pb_controller is None:
+            try:
+                self.pb_controller = ProducerBuddyController(self.config_file)
+            except Exception as e:
+                self.window.update()
+                ##askyesnoquestion returns the following:
+                ## yes: 1 (attempt to generate new config)
+                ## no : 0 (prompt to broswe for new config)
+                ##cancel: None (quit program)
+                dialog_response =  messagebox.askyesnocancel("Can't load config...", "Can't load a config file, run set up? (No to select an existing config, Cancel to quit.)")
+
+                if dialog_response == 1:
+                    ##TODO: create interactive set up.
+                    self.config_file='~/.producerbuddy.yml'
+                    self.pb_controller = self.optiondialog()
+                if dialog_response == 0:
+                    user_selected_path = filedialog.askopenfilename()
+                    if os.path.isfile(user_selected_path):
+                        self.config_file=user_selected_path
+                if dialog_response is None:
+                    exit()
+            if not self.pb_controller is None and not self.pb_controller.isconfigvalid():
+                self.pb_controller = None
+        self
         ##Start pygame audio:
         mixer.init()
         self.window.mainloop()
@@ -34,7 +61,7 @@ class ProducerBuddyGUI():
         self.unsorted_controls.grid(column=0, row=0, sticky="NW")
 
 
-        self.unsorted_select_button = tk.Button(self.unsorted_controls, text=self.unsorted_path, command=self.selectunsortedpath)
+        self.unsorted_select_button = tk.Button(self.unsorted_controls, text="self.unsorted_path", command=self.selectunsortedpath)
         self.unsorted_select_button.grid(column=0,row=0)
 
 
@@ -44,8 +71,8 @@ class ProducerBuddyGUI():
 
         self.unsorted_tree = self.createDirBrowser(self.unsorted_controls)
         self.target_tree = self.createDirBrowser(self.target_controls)
-        self.target_select_button = tk.Button(self.target_controls, text=self.target_path, command=self.selecttargetpath)
-        self.target_select_button.grid(column=0,row=0)
+        target_select_button = tk.Button(self.target_controls, text="self.target_path", command=self.selecttargetpath)
+        target_select_button.grid(column=0,row=0)
 
 
         button = tk.Button(self.window, text="Move", command=self.movebutton)
@@ -56,8 +83,6 @@ class ProducerBuddyGUI():
         button.grid(column=0,row=1)
         button = tk.Button(self.transport_controls, text="Stop", command=self.stopButton)
         button.grid(column=1,row=1)
-
-        self.updatewidgets()
 
     def updatewidgets(self):
         self.updateUnsorted()
@@ -88,44 +113,48 @@ class ProducerBuddyGUI():
     def stopButton(self):
         if mixer.music.get_busy():
             mixer.music.stop()
+
     ##Command to handle play button press.
     def playButton(self):
-        selectedPath = os.path.realpath(self.getsampleselection())
+        selectedPath = os.path.expanduser(self.getsampleselection())
         if mixer.music.get_busy():
             mixer.music.stop()
         mixer.music.load(selectedPath)
         mixer.music.play()
 
-    def updateUnsorted(self):
-        ##Show the unsorted sample files, in the "unsorted" treeview, which can be
-        ##sorted to the target pane.
-        unsorted_dir = os.listdir(self.unsorted_path)
-        for file_name in unsorted_dir:
-            file_type = None
-            full_path = os.path.join(self.unsorted_path, file_name).replace('\\', '/')
+    def populateUnsorted(self):
+    #     ##Show the unsorted sample files, in the "unsorted" treeview, which can be
+    #     ##sorted to the target pane.
+    #     unsorted_dir = os.listdir(self.unsorted_path)
+    #     for file_name in unsorted_dir:
+    #         file_type = None
+    #         full_path = os.path.join(self.unsorted_path, file_name).replace('\\', '/')
+    #
+    #         ##We only want to add files (not dirs) in supported audio formats to the list:
+    #         if os.path.isfile(full_path):
+    #
+    #             file_base, file_ext = os.path.splitext(file_name)
+    #             for supported_ext in self.AUDIO_FORMATS:
+    #                 if supported_ext in file_ext:
+    #                     self.unsorted_tree.insert("", 'end', text=file_name, values=[full_path] )
+    #
+        return None
 
-            ##We only want to add files (not dirs) in supported audio formats to the list:
-            if os.path.isfile(full_path):
-
-                file_base, file_ext = os.path.splitext(file_name)
-                for supported_ext in self.AUDIO_FORMATS:
-                    if supported_ext in file_ext:
-                        self.unsorted_tree.insert("", 'end', text=file_name, values=[full_path] )
-
-    def updateDestination(self, path=None, parent = ''):
-        ##Show the directories, in the "target", pane where the
-        ##samples from the "unsorted" pane can be moved to.
-        ##This function is recursive.
-        if path is None:
-            path = self.target_path
-        destination_dir = os.listdir(path)
-        for file_name in destination_dir:
-            file_type = None
-            full_path = os.path.join(path, file_name)
-
-            if os.path.isdir(full_path):
-                id = self.target_tree.insert(parent,'end',text=file_name, values=[full_path])
-                self.updateDestination(full_path, id)
+    def populateDestination(self, path=None, parent = ''):
+    #     ##Show the directories, in the "target", pane where the
+    #     ##samples from the "unsorted" pane can be moved to.
+    #     ##This function is recursive.
+    #     if path is None:
+    #         path = self.target_path
+    #     destination_dir = os.listdir(path)
+    #     for file_name in destination_dir:
+    #         file_type = None
+    #         full_path = os.path.join(path, file_name)
+    #
+    #         if os.path.isdir(full_path):
+    #             id = self.target_tree.insert(parent,'end',text=file_name, values=[full_path])
+    #             self.updateDestination(full_path, id)
+        return None
 
     def movebutton(self):
         sample_path = self.getsampleselection()
@@ -137,6 +166,11 @@ class ProducerBuddyGUI():
             self.updateUnsorted()
         else:
             messagebox.showwarning("ProducerBuddy", "You must select a sample AND a destination!")
+
+    def newdirbutton():
+        self.window.update()
+        ##Add a new dir to the target directory.
+        messagebox.showwarning("TODO")
 
     def getsampleselection(self):
         selected = self.unsorted_tree.selection()
@@ -156,22 +190,45 @@ class ProducerBuddyGUI():
             selected_target_obj = self.target_tree.item()
             return selected_target_obj['values'][0]
 
-    def selectunsortedpath(self, new_dir=None):
-        if new_dir is None:
-            new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir = self.unsorted_path)
-        self.unsorted_path = os.path.realpath(new_dir)
-        self.unsorted_select_button["text"] = self.unsorted_path
-        self.unsorted_tree.delete(*self.unsorted_tree.get_children())
-        self.updateUnsorted()
+    def selectincomingpath(self, initialdir=None):
+        if initialdir is None:
+            ##See if the typical downloads folder exists...
+            download = os.path.expanduser("~/Downloads")
+            if os.path.isdir(download):
+                init_dir = download
+            else:
+                init_dir = None
+            new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir=initialdir)
+        return os.path.expanduser(new_dir)
 
-    def selecttargetpath(self, new_dir=None):
-        if new_dir is None:
-            new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir = self.target_path)
+    def selecttargetpath(self, initialdir=None, option_dialog=False):
+        if initialdir is None:
+            initialdir = os.path.expanduser("~/Music")
+        new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir=initialdir)
+        new_dir = os.path.expanduser(new_dir)
+        if not option_dialog:
+            return new_dir
+        else:
+            self.temp_settings['incoming_path'] = new_dir
+    def selectunsortedpath(self, initialdir=None):
+        if initialdir is None:
+            new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir=initialdir)
+        return os.path.realpath(new_dir)
 
-        self.target_path = os.path.realpath(new_dir)
-        self.target_select_button["text"] = self.target_path
-        self.target_tree.delete(*self.target_tree.get_children())
-        self.updateDestination()
+    ##Runs config set up and returns a controller object.
+    def optiondialog(self):
+        if not os.path.isfile()
+        writeconfigtoyaml(self.config_file)
+        self.optiondialog = tk.Toplevel()
+        self.optiondialog.config(padx=20,pady=20)
+        self.optiondialog.title("ProducerBuddy")
+        target_select_button = tk.Button(self.optiondialog, text="Select incoming dir...", command=self.selecttargetpath)
+        target_select_button.grid(column=0,row=0)
+        target_select_button = tk.Button(self.optiondialog, text="self.target_path", command=self.selecttargetpath)
+        target_select_button.grid(column=0,row=2)
+        target_select_button = tk.Button(self.optiondialog, text="self.target_path", command=self.selecttargetpath)
+        target_select_button.grid(column=0,row=4)
+
 
     AUDIO_FORMATS = [
     "aiff",
