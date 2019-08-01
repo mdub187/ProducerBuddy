@@ -25,12 +25,11 @@ running in the system tray.
 
 
 Current issues:
+
 =It's ugly.
 -Barebones functionality.
--Audio format support is relatively limited due to using only pygame for audio
-  play back(eg: 32-bit wavs are not supported.) This should be remedied by leveraging
-  a system call to ffmpeg and streaming/reading the audio back to pygame as
-  PCM audio. ffmpeg should provide all necessary format support.
+-Audio format support is EXTREMELY limited using PyGame, next goal is to resolve
+  this as most of the remaining features rely on audio analysis.
 -UIX is decidedly "janky" at the moment. Did I mention it's ugly?
 
 Planned features:

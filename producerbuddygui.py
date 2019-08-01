@@ -5,46 +5,23 @@ from pygame import mixer
 import shutil
 import os
 import yaml
-from producerbuddycontroller import ProducerBuddyController, writeconfigtoyaml, validateconfig, SUPPORTED_SETTING_KEYS
+from producerbuddyaudiocontroller import ProducerBuddyAudioController
+from producerbuddycontroller import ProducerBuddyController, writeconfigtoyaml, validateconfig, SUPPORTED_SETTING_KEYS, SUPPORTED_AUDIO_FORMATS
 
 #TODO: Move all non-GUI logic to producerbuddycontroller
 class ProducerBuddyGUI():
-    def __init__(self, pb_controller = None, config_file ='~/.producerbuddy.yml'):
+    def __init__(self, pb_controller = None, config_path ='~/.producerbuddy.yml'):
         ##TODO: Add runtime options to specify alt config file.
-
-        self.temp_settings = {}
 
         self.createwidgets()
         self.pb_controller = None
-        self.config_file=os.path.expanduser('~/.producerbuddy.yml')
+        self.config_path = os.path.expanduser('~/.producerbuddy.yml')
 
-        ##Keep trying to load a controller until we get a config that loads...
-        while self.pb_controller is None:
-            try:
-                self.pb_controller = ProducerBuddyController(self.config_file)
-            except Exception as e:
-                self.window.update()
-                ##askyesnoquestion returns the following:
-                ## yes: 1 (attempt to generate new config)
-                ## no : 0 (prompt to broswe for new config)
-                ##cancel: None (quit program)
-                dialog_response =  messagebox.askyesnocancel("Can't load config...", "Can't load a config file, run set up? (No to select an existing config, Cancel to quit.)")
-
-                if dialog_response == 1:
-                    ##TODO: create interactive set up.
-                    self.config_file='~/.producerbuddy.yml'
-                    self.pb_controller = self.optiondialog()
-                if dialog_response == 0:
-                    user_selected_path = filedialog.askopenfilename()
-                    if os.path.isfile(user_selected_path):
-                        self.config_file=user_selected_path
-                if dialog_response is None:
-                    exit()
-            if not self.pb_controller is None and not self.pb_controller.isconfigvalid():
-                self.pb_controller = None
-        self
+        self.pb_controller = ProducerBuddyController(self.config_path)
+        self.working_config = {}
         ##Start pygame audio:
-        mixer.init()
+        self.updatewidgets()
+        self.audio_controller = ProducerBuddyAudioController()
         self.window.mainloop()
 
     def createwidgets(self):
@@ -57,26 +34,37 @@ class ProducerBuddyGUI():
         self.window.grid_columnconfigure(2,weight=1)
         self.window.grid_rowconfigure(1,weight=0)
 
+        ##Create stringVars for various things...
+        self.incoming_path_stringVar = tk.StringVar()
+        self.unsorted_path_stringVar = tk.StringVar()
+        self.sorted_path_stringVar = tk.StringVar()
+
         self.unsorted_controls = tk.Frame(self.window, background="green")
         self.unsorted_controls.grid(column=0, row=0, sticky="NW")
 
+        buttontextvar = tk.StringVar()
 
-        self.unsorted_select_button = tk.Button(self.unsorted_controls, text="self.unsorted_path", command=self.selectunsortedpath)
+        self.unsorted_select_button = tk.Button(self.unsorted_controls, textvariable=self.unsorted_path_stringVar, command=self.selectunsortedpath)
         self.unsorted_select_button.grid(column=0,row=0)
 
-
-        self.target_controls = tk.Frame(self.window, background="blue")
-        self.target_controls.grid(column=3, row=0, sticky="NE")
-
+        self.sorted_controls = tk.Frame(self.window, background="blue")
+        self.sorted_controls.grid(column=2, row=0, sticky="NE")
+        self.file_controls = tk.Frame(self.window, background="red")
+        self.file_controls.grid(column=1, row=0, sticky="N")
 
         self.unsorted_tree = self.createDirBrowser(self.unsorted_controls)
-        self.target_tree = self.createDirBrowser(self.target_controls)
-        target_select_button = tk.Button(self.target_controls, text="self.target_path", command=self.selecttargetpath)
-        target_select_button.grid(column=0,row=0)
+        self.sorted_tree = self.createDirBrowser(self.sorted_controls)
+        sorted_select_button = tk.Button(self.sorted_controls,  textvariable=self.sorted_path_stringVar, command=self.selectsortedpath)
+        sorted_select_button.grid(column=0,row=0)
 
 
-        button = tk.Button(self.window, text="Move", command=self.movebutton)
-        button.grid(column=1,row=0)
+        button = tk.Button(self.file_controls, text=">> Move >>", command=self.movebutton)
+        button.grid(row=1)
+        button = tk.Button(self.file_controls, text="Configuration", command=self.optiondialog)
+
+        button.grid(row=0)
+        button = tk.Button(self.file_controls, text="Import Samples", command=self.importunsorted)
+        button.grid(row=2)
         self.transport_controls = tk.Frame(self.window)
         self.transport_controls.grid(column=0, row=1, sticky="SW")
         button = tk.Button(self.transport_controls, text="Play", command=self.playButton)
@@ -85,8 +73,11 @@ class ProducerBuddyGUI():
         button.grid(column=1,row=1)
 
     def updatewidgets(self):
-        self.updateUnsorted()
-        self.updateDestination()
+        self.populateUnsorted(refresh=True)
+        self.populateSorted(refresh=True)
+        self.unsorted_path_stringVar.set(self.pb_controller.unsorted_path)
+        self.sorted_path_stringVar.set(self.pb_controller.sorted_path)
+        self.incoming_path_stringVar.set(self.pb_controller.incoming_path)
 
     def createDirBrowser(self, parent):
             vsb = ttk.Scrollbar(parent, orient="vertical")
@@ -122,54 +113,113 @@ class ProducerBuddyGUI():
         mixer.music.load(selectedPath)
         mixer.music.play()
 
-    def populateUnsorted(self):
-    #     ##Show the unsorted sample files, in the "unsorted" treeview, which can be
-    #     ##sorted to the target pane.
-    #     unsorted_dir = os.listdir(self.unsorted_path)
-    #     for file_name in unsorted_dir:
-    #         file_type = None
-    #         full_path = os.path.join(self.unsorted_path, file_name).replace('\\', '/')
-    #
-    #         ##We only want to add files (not dirs) in supported audio formats to the list:
-    #         if os.path.isfile(full_path):
-    #
-    #             file_base, file_ext = os.path.splitext(file_name)
-    #             for supported_ext in self.AUDIO_FORMATS:
-    #                 if supported_ext in file_ext:
-    #                     self.unsorted_tree.insert("", 'end', text=file_name, values=[full_path] )
-    #
-        return None
+    def populateUnsorted(self,parent='', dir_node=None, refresh=False):
+        if refresh:
+            self.pb_controller.scanunsorted()
+        if dir_node == None:
+            ##Clear existing nodes
+            for child in self.unsorted_tree.get_children():
+                self.unsorted_tree.delete(child)
 
-    def populateDestination(self, path=None, parent = ''):
-    #     ##Show the directories, in the "target", pane where the
-    #     ##samples from the "unsorted" pane can be moved to.
-    #     ##This function is recursive.
-    #     if path is None:
-    #         path = self.target_path
-    #     destination_dir = os.listdir(path)
-    #     for file_name in destination_dir:
-    #         file_type = None
-    #         full_path = os.path.join(path, file_name)
-    #
-    #         if os.path.isdir(full_path):
-    #             id = self.target_tree.insert(parent,'end',text=file_name, values=[full_path])
-    #             self.updateDestination(full_path, id)
-        return None
+            dir_node = self.pb_controller.unsorted_dir.copy()
+        for n in dir_node:
+            node = dir_node[n]
+            n_type = node.get('type')
+            if n_type == 'dir':
+                id=self.unsorted_tree.insert(parent,'end',text=n)
+                self.populateUnsorted(id,node.get("dir_list", False))
+            elif not n_type is None:
+                abs_path = node.get('abs_path')
+                id = self.unsorted_tree.insert(parent,'end',text=n)
+                self.unsorted_tree.set(id, 0, abs_path)
+
+    def populateSorted(self,parent='', dir_node=None, refresh=False):
+        ##Show the directories, in the "sorted", pane where the
+        ##samples from the "unsorted" pane can be moved to.
+        ##This function is recursive.
+        if refresh:
+            self.pb_controller.scansorted()
+        if dir_node == None:
+            for item_id in self.sorted_tree.get_children():
+                self.sorted_tree.delete(item_id)
+            dir_node = self.pb_controller.sorted_dir.copy()
+        for n in dir_node:
+            node = dir_node[n]
+            if node.get('type') == 'dir':
+                abs_path = node.get('abs_path')
+                id = self.sorted_tree.insert(parent,'end',text=n)
+                self.sorted_tree.set(id, 0, abs_path)
+                self.populateSorted(id,node.get("dir_list", False))
+
+    def importunsorted(self):
+
+        ##Import destination.
+        dst=self.pb_controller.unsorted_path
+        incoming=self.pb_controller.incoming_path
+        title="ProducerBuddy - Import Samples from {}".format(incoming)
+        message_string = " Importing Samples from\r\n {}\r\n".format(incoming)
+        import_list = self.pb_controller.importlist(refresh=True)
+        count = len(import_list)
+
+        if count == 0:
+            message_string += "No new samples to move!"
+            messagebox.showinfo(title, message_string)
+
+        elif count > 0:
+            message_string += "Found the following: \r\n"
+
+            for l in import_list:
+                path, filename = os.path.split(l)
+                message_string += "{}\r\n".format(filename)
+
+            message_string += "\r\nTotal count: {}\r\n".format(count)
+            message_string += "\r\nProceed with moving samples to destination?:\r\n{}".format(dst)
+            user_confirm_move = messagebox.askyesno(title, message_string)
+            confirm_for_all_checked = False
+
+            if user_confirm_move:
+                for src in import_list:
+                    path, filename = os.path.split(src)
+
+                    try:
+                        shutil.move(src,dst)
+                    except Exception as e:
+                        error = e.args[0]
+                        if 'already exists' in error:
+                            error_message_string = "{} already exists in unsorted directory, overwrite?".format(filename)
+                            confirm_clobber = messagebox.askyesno(title, error_message_string)
+                            if confirm_clobber:
+                                try:
+                                    shutil.copy(src,dst)
+                                    os.remove(src)
+                                except Exception as e:
+                                    messagebox.showwarning("FATAL ERR0R", e)
+            self.populateUnsorted(refresh=True)
 
     def movebutton(self):
         sample_path = self.getsampleselection()
-        target_path = self.gettargetselection()
-        if not sample_path is None and not target_path is None:
-            target_path += '/'
-            shutil.move(sample_path,target_path)
-            self.unsorted_tree.delete(*self.unsorted_tree.get_children())
-            self.updateUnsorted()
+        sorted_path = self.getsortedselection()
+
+        if sample_path is None or sorted_path is None:
+            messagebox.showwarning("ProducerBuddy", "You must select a source sample (left pane), AND a target folder (right pane).")
+        elif not os.path.isdir(sorted_path):
+            ##Will add the ability to make existing sorted samples visible
+            messagebox.showwarning("ProducerBuddy", "Target selection (right pane) MUST be a directory.")
         else:
-            messagebox.showwarning("ProducerBuddy", "You must select a sample AND a destination!")
+        ##sorted path is a directory, add a trailing slash
+            sorted_path = os.path.join(sorted_path, "")
+
+            move_result = self.pb_controller.movesample(sample_path, sorted_path)
+
+            if not move_result == 1 :
+                ##FIXME: Add rename/clobber/createDirBrowser handling.
+                sample_base = os.path.basename(sample_path)
+                messagebox.showwarning("ProducerBuddy", "There was an issue moving {}".format(sample_base))
+            self.populateUnsorted()
 
     def newdirbutton():
         self.window.update()
-        ##Add a new dir to the target directory.
+        ##Add a new dir to the sorted directory.
         messagebox.showwarning("TODO")
 
     def getsampleselection(self):
@@ -178,67 +228,103 @@ class ProducerBuddyGUI():
         if not selected:
             return None
         else:
-            selected_sample_obj = self.unsorted_tree.item(selected)
-            return selected_sample_obj['values'][0]
+            selected_sorted_obj = self.unsorted_tree.item(selected)
+            return selected_sorted_obj['values'][0]
 
-    def gettargetselection(self):
-        selected = self.target_tree.selection()
+    def getsortedselection(self):
+        selected = self.sorted_tree.selection()
         ##If our selection was empty, we return none.
         if not selected:
             return None
         else:
-            selected_target_obj = self.target_tree.item()
-            return selected_target_obj['values'][0]
+            selected_sorted_obj = self.sorted_tree.item(selected)
+            return selected_sorted_obj['values'][0]
 
-    def selectincomingpath(self, initialdir=None):
+    def selectincomingpath(self, initialdir=None, targetStringVar=None, updatecontroller=True):
+        if initialdir is None:
+            if not self.pb_controller.getsetting("incoming_path") is None:
+                initialdir = self.pb_controller.getsetting("incoming_path")
+            else:
+                ##See if the typical downloads folder exists...
+                music_path = os.path.expanduser("~/Downloads")
+                if os.path.isdir(music_path):
+                    initialdir = music_path
+                else:
+                    initialdir = None
+        new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir=initialdir)
+        if not targetStringVar is None:
+            targetStringVar.set(new_dir)
+        self.working_config['incoming_path'] = new_dir
+
+    def selectunsortedpath(self, initialdir=None, targetStringVar=None, updatecontroller=True):
         if initialdir is None:
             ##See if the typical downloads folder exists...
-            download = os.path.expanduser("~/Downloads")
-            if os.path.isdir(download):
-                init_dir = download
+            music_path = os.path.expanduser("~/Music")
+            if os.path.isdir(music_path):
+                initialdir = music_path
             else:
-                init_dir = None
-            new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir=initialdir)
-        return os.path.expanduser(new_dir)
-
-    def selecttargetpath(self, initialdir=None, option_dialog=False):
-        if initialdir is None:
-            initialdir = os.path.expanduser("~/Music")
+                initialdir = None
         new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir=initialdir)
-        new_dir = os.path.expanduser(new_dir)
-        if not option_dialog:
-            return new_dir
-        else:
-            self.temp_settings['incoming_path'] = new_dir
-    def selectunsortedpath(self, initialdir=None):
+        if not targetStringVar is None:
+            targetStringVar.set(new_dir)
+        self.working_config['unsorted_path'] = new_dir
+
+    def selectsortedpath(self, initialdir=None, targetStringVar=None, updatecontroller=True):
         if initialdir is None:
-            new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir=initialdir)
-        return os.path.realpath(new_dir)
+            ##See if the typical downloads folder exists...
+            music_path = os.path.expanduser("~/Music")
+            music_path = os.path.join(music_path, "")
+            if os.path.isdir(music_path):
+                initialdir = music_path
+            else:
+                initialdir = None
+        new_dir = filedialog.askdirectory(title="Select directory to move samples to:", initialdir=initialdir)
+        if not targetStringVar is None:
+            targetStringVar.set(new_dir)
+        self.working_config['sorted_path'] = new_dir
 
     ##Runs config set up and returns a controller object.
     def optiondialog(self):
-        if not os.path.isfile()
-        writeconfigtoyaml(self.config_file)
-        self.optiondialog = tk.Toplevel()
-        self.optiondialog.config(padx=20,pady=20)
-        self.optiondialog.title("ProducerBuddy")
-        target_select_button = tk.Button(self.optiondialog, text="Select incoming dir...", command=self.selecttargetpath)
-        target_select_button.grid(column=0,row=0)
-        target_select_button = tk.Button(self.optiondialog, text="self.target_path", command=self.selecttargetpath)
-        target_select_button.grid(column=0,row=2)
-        target_select_button = tk.Button(self.optiondialog, text="self.target_path", command=self.selecttargetpath)
-        target_select_button.grid(column=0,row=4)
+        optiondialog = tk.Toplevel()
+        optiondialog.config(padx=20,pady=20)
+        optiondialog.title("ProducerBuddy")
 
+        stringVars = {}
+        original_settings = {}
+        working_settings = {}
+        for k in ["incoming_path","unsorted_path","sorted_path"]:
+            stringVars[k] = tk.StringVar()
+            original_settings[k] = self.pb_controller.getsetting(k)
+            stringVars[k].set(original_settings[k])
+            working_settings[k] = stringVars[k].get()
+        ##Copy our original settings to a working copy...
+        working_settings = original_settings.copy()
 
-    AUDIO_FORMATS = [
-    "aiff",
-    "wav",
-    "mp3",
-    "rex",
-    "m4a",
-    "ogg",
-    "raw",
-    "wma"
-    ]
+        button = tk.Button(optiondialog, text="Select Incoming/Download directory (Optional)", command=lambda: self.selectincomingpath(targetStringVar=stringVars['incoming_path']))
+        button.grid(column=1,row=0)
+        label  = tk.Label(optiondialog, textvariable=stringVars["incoming_path"], width=40)
+        label.grid(column=2,row=0)
+        button = tk.Button(optiondialog, text="Select Unosrted Sample directory.", command=lambda: self.selectunsortedpath(targetStringVar=stringVars['unsorted_path']))
+        button.grid(column=1,row=2)
+        label  = tk.Label(optiondialog, textvariable=stringVars["unsorted_path"], width=40)
+        label.grid(column=2,row=2)
+        button = tk.Button(optiondialog, text="Choose Sorted Sample directory.", command=lambda: self.selectsortedpath(targetStringVar=stringVars['sorted_path']))
+        button.grid(column=1,row=3)
+        label  = tk.Label(optiondialog, textvariable=stringVars["sorted_path"], width=40)
+        label.grid(column=2,row=3)
+        button = tk.Button(optiondialog, text="Cancel", command=optiondialog.destroy)
+        button.grid(column=0, row=5)
+        button = tk.Button(optiondialog, text="Apply", command=lambda: self.applyconfig(optiondialog))
+        button.grid(column=3, row=5)
+
+    def applyconfig(self,  frame=None):
+
+        self.pb_controller.saveconfig(self.working_config)
+        self.working_config.clear()
+        if not frame is None:
+            if isinstance(frame, tk.Toplevel):
+                frame.destroy()
+        self.updatewidgets()
+
 
 gui = ProducerBuddyGUI()
