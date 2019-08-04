@@ -8,7 +8,8 @@ SUPPORTED_AUDIO_FORMATS = [
 "m4a",
 "ogg",
 "raw",
-"wma"
+"wma",
+"aif"
 ]
 
 SUPPORTED_SETTING_KEYS = [

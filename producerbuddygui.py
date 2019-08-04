@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import helper
-from pygame import mixer
 import shutil
 import os
 import yaml
@@ -108,10 +107,7 @@ class ProducerBuddyGUI():
     ##Command to handle play button press.
     def playButton(self):
         selectedPath = os.path.expanduser(self.getsampleselection())
-        if mixer.music.get_busy():
-            mixer.music.stop()
-        mixer.music.load(selectedPath)
-        mixer.music.play()
+        self.audio_controller.play_audio(selectedPath)
 
     def populateUnsorted(self,parent='', dir_node=None, refresh=False):
         if refresh:
