@@ -1,4 +1,4 @@
-import shutil, os, yaml, re
+import shutil, os, yaml, re, hashlib
 
 SUPPORTED_AUDIO_FORMATS = [
 "aiff",

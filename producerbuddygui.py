@@ -4,7 +4,7 @@ import helper
 import shutil
 import os
 import yaml
-from producerbuddyaudiocontroller import ProducerBuddyAudioController
+from producerbuddyaudiocontroller import AudioController
 from producerbuddycontroller import ProducerBuddyController, writeconfigtoyaml, validateconfig, SUPPORTED_SETTING_KEYS, SUPPORTED_AUDIO_FORMATS
 
 #TODO: Move all non-GUI logic to producerbuddycontroller
@@ -20,7 +20,7 @@ class ProducerBuddyGUI():
         self.working_config = {}
         ##Start pygame audio:
         self.updatewidgets()
-        self.audio_controller = ProducerBuddyAudioController()
+        self.audio_controller = AudioController()
         self.window.mainloop()
 
     def createwidgets(self):
@@ -101,8 +101,7 @@ class ProducerBuddyGUI():
             return tree
 
     def stopButton(self):
-        if mixer.music.get_busy():
-            mixer.music.stop()
+        self.audio_controller.stop_audio()
 
     ##Command to handle play button press.
     def playButton(self):
