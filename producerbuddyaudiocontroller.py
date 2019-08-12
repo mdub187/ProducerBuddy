@@ -1,13 +1,10 @@
 import os
-import audioread
-import simpleaudio
-import io
-import scipy.io.wavfile
-import numpy as np
 import hashlib
-import contextlib
-import wave
+import ffmpeg
 from pygame import mixer
+import time
+from timer import Timer
+from datetime import timedelta
 
 DEFAULT_CACHE_PATH = "/tmp/producerbuddy-wavecache"
 
@@ -18,6 +15,8 @@ class AudioController():
         ##TODO: Implement memory management for loaded audio.
         self.cache_dir = DEFAULT_CACHE_PATH
         self.loaded_audio_objects = {}
+        self._playback_offset = 0
+        self._currently_playing = None
 
         mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=512, devicename=None)
         mixer.init()
@@ -27,19 +26,45 @@ class AudioController():
         if not self.is_file_loaded(filepath):
             self.loaded_audio_objects[filepath] = AudioObject(filepath, self.cache_dir)
 
-    def play_audio(self, filepath):
+    def play_audio(self, filepath, playback_offset = 0):
         if not self.is_file_loaded(filepath):
             self.load_audio(filepath)
 
         audio_object = self.loaded_audio_objects[filepath]
-        if mixer.get_busy():
+        self._playback_offset = playback_offset
+        if self.is_playing():
             self.stop_audio()
+
         mixer.music.load(audio_object._cache_path)
+
+        if self._playback_offset != 0:
+            mixer.music.set_pos(self._playback_offset)
+
         mixer.music.play()
+        self._currently_playing = audio_object
 
     def stop_audio(self):
         mixer.music.stop()
+        self._currently_playing = None
+        self._playback_offset = 0
 
+    def is_playing(self):
+        return mixer.music.get_busy()
+
+    ##Return a tuple with elapsed seconds and total duration of currently playing
+    ##track.
+    def get_playhead(self):
+        if not self._currently_playing is None and self.is_playing():
+            ##Built in rate limit, if we call mixer.music.get_pos() too quickly
+            ## it appears to return duplicate values. Slowing it down to once
+            ##every half millisecond seems to alleviate that.
+            time.sleep(0.005)
+            duration = self._currently_playing._duration
+            elapsed = mixer.music.get_pos() + self._playback_offset
+            percentage = elapsed / duration * 0.1
+            return (elapsed, duration, percentage )
+        else:
+            return (0,0,0)
 
     def is_file_loaded(self, filepath):
         return filepath in self.loaded_audio_objects
@@ -51,22 +76,32 @@ class AudioObject():
         cache_basename = self._cache_hash
         self._cache_path = os.path.join(cache_dir, cache_basename)
 
-        with audioread.audio_open(self._filepath) as decode:
-            self._samplerate = decode.samplerate
-            self._channels = decode.channels
-            with contextlib.closing(wave.open(self._cache_path, 'w')) as of:
-                of.setnchannels(decode.channels)
-                of.setframerate(decode.samplerate)
-                of.setsampwidth(2)
+        ##FIXME: duration broke...
+        self._duration = 1
 
-                for buf in decode:
-                    of.writeframes(buf)
+        ffmpeg.input(self._filepath).output(self._cache_path).run()
         print("Saved to {}".format(self._cache_path))
 
+class AudioTimer(Timer):
+    def __init__(self, audiocontroller):
+        super().__init__()
+        self.audiocontroller = audiocontroller
+
+    def get_elapsed(self):
+
+        elapsed_ms, __, ___ = self.audiocontroller.get_playhead()
+        if self.is_running():
+            elapsed_sec = elapsed_ms / 1000
+            self._time_elapsed = elapsed_sec
+        date_time_str = str(timedelta(seconds=self._time_elapsed))
+        return (self._time_elapsed, date_time_str)
+
+    def is_running(self):
+        return self.audiocontroller.is_playing()
 
 def cache_hash(file_path):
     hash_obj = hashlib.md5()
     hash_obj.update(file_path.encode('utf-8'))
 
     hash_digest_str = hash_obj.hexdigest()
-    return hash_digest_str + ".wav"
+    return hash_digest_str + ".ogg"

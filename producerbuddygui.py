@@ -4,23 +4,26 @@ import helper
 import shutil
 import os
 import yaml
-from producerbuddyaudiocontroller import AudioController
-from producerbuddycontroller import ProducerBuddyController, writeconfigtoyaml, validateconfig, SUPPORTED_SETTING_KEYS, SUPPORTED_AUDIO_FORMATS
-
+from producerbuddycontroller import ProducerBuddyController
+from producerbuddyaudiocontroller import AudioController, AudioTimer
+from tktimerwidget import TkTimer
+from time import sleep
 #TODO: Move all non-GUI logic to producerbuddycontroller
 class ProducerBuddyGUI():
     def __init__(self, pb_controller = None, config_path ='~/.producerbuddy.yml'):
         ##TODO: Add runtime options to specify alt config file.
 
-        self.createwidgets()
+
         self.pb_controller = None
         self.config_path = os.path.expanduser('~/.producerbuddy.yml')
 
         self.pb_controller = ProducerBuddyController(self.config_path)
         self.working_config = {}
-        ##Start pygame audio:
-        self.updatewidgets()
+
         self.audio_controller = AudioController()
+        self.audio_timer = AudioTimer(self.audio_controller)
+        self.createwidgets()
+        self.updatewidgets()
         self.window.mainloop()
 
     def createwidgets(self):
@@ -71,6 +74,11 @@ class ProducerBuddyGUI():
         button = tk.Button(self.transport_controls, text="Stop", command=self.stopButton)
         button.grid(column=1,row=1)
 
+        self._elapsed_time_display = TkTimer(self.transport_controls, self.audio_timer)
+        self._elapsed_time_display.widget.grid(column=1,row=0)
+        ##Start loop to update timer:
+        self.update_audio_timer_loop()
+
     def updatewidgets(self):
         self.populateUnsorted(refresh=True)
         self.populateSorted(refresh=True)
@@ -106,7 +114,10 @@ class ProducerBuddyGUI():
     ##Command to handle play button press.
     def playButton(self):
         selectedPath = os.path.expanduser(self.getsampleselection())
+        self.audio_controller.stop_audio()
+        self.audio_controller.load_audio(selectedPath)
         self.audio_controller.play_audio(selectedPath)
+
 
     def populateUnsorted(self,parent='', dir_node=None, refresh=False):
         if refresh:
@@ -321,5 +332,9 @@ class ProducerBuddyGUI():
                 frame.destroy()
         self.updatewidgets()
 
+    def update_audio_timer_loop(self):
+        if self.audio_controller.is_playing():
+            self._elapsed_time_display.update_widget()
 
+        self.window.after(1,self.update_audio_timer_loop)
 gui = ProducerBuddyGUI()
