@@ -223,7 +223,7 @@ class ProducerBuddyGUI():
                 messagebox.showwarning("ProducerBuddy", "There was an issue moving {}".format(sample_base))
             self.populateUnsorted()
 
-    def newdirbutton():
+    def newdirbutton(self):
         self.window.update()
         ##Add a new dir to the sorted directory.
         messagebox.showwarning("TODO")
